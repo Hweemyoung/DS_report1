@@ -5,7 +5,7 @@ from torch.nn import functional as F
 
 class LinearSeq(nn.Module):
     def __init__(self, in_features, out_features_list, bias_list=True, batch_normalization_list=True,
-                 activation_list='relu'):
+                 activation_list='relu', dropout_list=.5):
         super(LinearSeq, self).__init__()
         if type(bias_list) == bool:
             bias_list = [bias_list] * len(out_features_list)
@@ -13,11 +13,13 @@ class LinearSeq(nn.Module):
             batch_normalization_list = [batch_normalization_list] * len(out_features_list)
         if type(activation_list) == str:
             activation_list = [activation_list] * len(out_features_list)
+        if type(dropout_list) != list:
+            dropout_list = [dropout_list] * len(out_features_list)
         self.layers = nn.ModuleList([
-            LinearNorm(i, o, b, bn, a)
-            for (i, o, b, bn, a) in
+            LinearNorm(i, o, b, bn, a, d)
+            for (i, o, b, bn, a, d) in
             zip([in_features] + out_features_list[:-1], out_features_list, bias_list, batch_normalization_list,
-                activation_list)
+                activation_list, dropout_list)
         ])
 
     def __len__(self):
@@ -75,7 +77,7 @@ class BatchNorm1d(nn.Module):
 
 
 class LinearNorm(nn.Module):
-    def __init__(self, in_features, out_features, bias=True, batch_normalization=True, activation=None):
+    def __init__(self, in_features, out_features, bias=True, batch_normalization=True, activation=None, dropout=.5):
         super(LinearNorm, self).__init__()
         self.layers = nn.ModuleList()
         self.layers.append(
@@ -90,6 +92,8 @@ class LinearNorm(nn.Module):
             self.layers.append(nn.Tanh())
         elif activation == 'sigmoid':
             self.layers.append(nn.Sigmoid())
+        if dropout:
+            self.layers.append(nn.Dropout(p=dropout))
 
     def forward(self, x):
         for layer in self.layers:

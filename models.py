@@ -1,20 +1,12 @@
 import torch
 from torch import nn
-from torch import optim
-from tqdm import tqdm
 
 import modules
 
-
-# class Taco2ProsodyTransfer(nn.Module):
-#     def __init__(self, *args):
-#         super(Taco2ProsodyTransfer, self).__init__()
-#         self.encoder = tacotron.modules.Encoder(*args)
-#         self.attention = tacotron.modules.LocationSensitiveAttention
-
 class Embeddings(nn.Module):
-    def __init__(self, embedding_dim=64):
+    def __init__(self, embedding_dim=4):
         super(Embeddings, self).__init__()
+        self.embedding_dim = embedding_dim
         self.embeddings_holiday = modules.CharacterEmbeddings(12, embedding_dim)
         self.embeddings_weather = modules.CharacterEmbeddings(11, embedding_dim)
         self.embeddings_weather_detail = modules.CharacterEmbeddings(38, embedding_dim)
@@ -32,14 +24,14 @@ class Embeddings(nn.Module):
         return torch.cat([embed1, embed2, embed3, embed4, embed5, embed6], 1)
 
 class Predictor(nn.Module):
-    def __init__(self, data_dict, labels):
+    def __init__(self):
         super(Predictor, self).__init__()
-        self.data_dict = data_dict
-        self.labels = labels
         self.embeddings = Embeddings()
-        self.linears = modules.LinearSeq(388, [1024, 256, 64, 16, 4, 1], activation_list=['relu', 'relu', None, None, None, None])
+        in_features = self.embeddings.embedding_dim * 6 + 4
+        self.linears = modules.LinearSeq(in_features, [1024, 256, 64, 16, 4, 1], activation_list=['relu', 'relu', 'relu', 'relu', 'relu', None])
+        # self.linears = modules.LinearSeq(28, [32, 1], activation_list=['relu', None])
 
-    def pseudo_train(self, criterion, optimizer, num_epochs=100):
+    def train(self, data_train_dict, labels_train, criterion, optimizer, num_epochs=100):
         # hparams
         batch_size = 64
 
@@ -55,12 +47,14 @@ class Predictor(nn.Module):
             for epoch in range(num_epochs):
                 print('---------------\nEpoch ', epoch + 1, '\n')
                 epoch_loss = .0
-                epoch_correct = 0
 
                 # 3.0 embeddings
-                embedded_categories = self.embeddings.forward(self.data_dict)
-                data = torch.cat([embedded_categories, self.data_dict['temperature'], self.data_dict['rain_in_hour'],
-                                  self.data_dict['snow_in_hour'], self.data_dict['clouds_cover']], 1)
+                embedded_categories = self.embeddings.forward(data_train_dict)
+                data = torch.cat([embedded_categories, data_train_dict['temperature'], data_train_dict['rain_in_hour'],
+                                  data_train_dict['snow_in_hour'], data_train_dict['clouds_cover']], 1)
+                # data = torch.cat([embedded_categories, data_train_dict['temperature'], data_train_dict['rain_in_hour'],
+                #                   data_train_dict['snow_in_hour'], data_train_dict['clouds_cover']], 1)[:1000]
+                # labels_train = labels_train[:1000]
 
                 num_batches = data.size(0) // batch_size
 
@@ -69,11 +63,11 @@ class Predictor(nn.Module):
                 while True:
                     if batch_count < num_batches:
                         batch = data[batch_size * batch_count: batch_size * (batch_count + 1)]
-                        labels = self.labels[batch_size * batch_count: batch_size * (batch_count + 1)]
+                        labels = labels_train[batch_size * batch_count: batch_size * (batch_count + 1)]
                     else:
                         batch = data[batch_size * batch_count:]
-                        labels = self.labels[batch_size * batch_count:]
-
+                        labels = labels_train[batch_size * batch_count:]
+                    print('Epoch:', epoch+1, '/', num_epochs, 'Batch:', batch_count, '/', num_batches)
                     # 3.1.0 initialize grads
                     optimizer.zero_grad()
 
@@ -99,6 +93,15 @@ class Predictor(nn.Module):
 
                 # 3.2 calc epoch loss
                 epoch_loss /= data.size(0)
+                print('Epoch', epoch + 1, 'average loss:', epoch_loss)
+
+    def eval(self, data_test_dict):
+        with torch.no_grad():
+            embedded_categories = self.embeddings.forward(data_test_dict)
+            data = torch.cat([embedded_categories, data_test_dict['temperature'], data_test_dict['rain_in_hour'],
+                              data_test_dict['snow_in_hour'], data_test_dict['clouds_cover']], 1)
+            preds = self.linears.forward(data)
+            return preds
 
 # class Tacotron2(nn.Module):
 #     def __init__(self, *args):
